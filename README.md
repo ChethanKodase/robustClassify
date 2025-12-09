@@ -13,19 +13,40 @@ Install pytorch and torchvison :
 
 `pip3 install torch torchvision --index-url https://download.pytorch.org/whl/cu126`
 
-Install datasets library: 
-`pip install datasets`
+`cd robustClassify`
 
 Activate the environment :
 
 `conda activate robustness`
 
-Download the imagenet subset of 10k images from hugging face (https://huggingface.co/datasets/Oztobuzz/ImageNet_10k/tree/main/data ).
+Install libraries: 
+`pip install datasets`
+`pip install numpy`
+`pip install matplotlib`
 
-There are 4 files train-00000-of-00004.parquet, train-00001-of-00004.parquet, train-00002-of-00004.parquet, train-00003-of-00004.parquet
 
-Make a directory called imagenetparaquet and add these files .
+Install Kaggel: 
 
-Then make a directory called imagenetDataSubset and run : 
+`pip install kaggle`
 
-`python datasetSaver.py `
+Create a new API in Kaggel and get kaggel.json file and then 
+
+
+```
+mkdir -p ~/.kaggle
+mv kaggle.json ~/.kaggle/
+chmod 600 ~/.kaggle/kaggle.json
+
+```
+Then run :
+
+`kaggle datasets download -d ifigotin/imagenetmini-1000`
+
+The unzip the downloaded file :
+
+`unzip imagenetmini-1000.zip -d imagenet-mini`
+
+
+Then Run : 
+
+`python efficientnetAttack2.py`
