@@ -34,7 +34,10 @@ std  = torch.tensor([0.229, 0.224, 0.225]).to(device)
 criterion = nn.MSELoss()
 desired_norm_l_inf = 0.1
 #attackType = "untargeted"
-attackType = "targeted"
+#attackType = "targeted"
+#attackType ="softBoundUntargeted"
+attackType = "untargeted_l2_bound"
+
 def getPlot(images, name):
     img = images[0].permute(1, 2, 0)     # HWC
     img = img * std + mean               # Unnormalize
@@ -151,8 +154,8 @@ def main():
 
             optimizer.zero_grad()
 
-            normalized_attacked = torch.clamp(source_im + noise_addition, mi, ma)
-            logitsAttacked = model(normalized_attacked)       # [B, 1000]
+            attackedImages = torch.clamp(source_im + noise_addition, mi, ma)
+            logitsAttacked = model(attackedImages)       # [B, 1000]
             logitsNormal = model(source_im)       # [B, 1000]
             loss = criterion(logitsAttacked, logitsNormal)
 
@@ -171,7 +174,7 @@ def main():
                     probsAttacked = torch.softmax(logitsAttacked, dim=1)
                     top1 = probsAttacked.argmax(dim=1)
                     samplesPreds = [class_dict[top.item()] for top in top1]
-                    getPlot64(normalized_attacked, 'UntargtedAttacked')
+                    getPlot64(attackedImages, 'UntargtedAttacked')
                     getPlot64(source_im, 'original')
                     correct = (top1 == labels).sum().item()
                     Accuracy  = correct/len(labels)
@@ -186,8 +189,8 @@ def main():
         for step in range(500):
             optimizer.zero_grad()
 
-            normalized_attacked = torch.clamp(source_im + noise_addition, mi, ma)
-            logitsAttacked = model(normalized_attacked)       # [B, 1000]
+            attackedImages = torch.clamp(source_im + noise_addition, mi, ma)
+            logitsAttacked = model(attackedImages)       # [B, 1000]
 
             #print(logitsNormal.shape)
             #print("logitsNormal.shape", logitsNormal.shape)
@@ -208,10 +211,105 @@ def main():
                     probsAttacked = torch.softmax(logitsAttacked, dim=1)
                     top1 = probsAttacked.argmax(dim=1)
                     samplesPreds = [class_dict[top.item()] for top in top1]
-                    getPlot64(normalized_attacked, 'targetedAttacked')
+                    getPlot64(attackedImages, 'targetedAttacked')
                     getPlot64(source_im, 'original')
                     correct = (top1 == labels).sum().item()
                     Accuracy  = correct/len(labels)
+                    print("Accuracy", Accuracy)
+                    print()
+
+
+    if attackType == "softBoundUntargeted":
+        alpha = 0.1
+        for step in range(100):
+            optimizer.zero_grad()
+
+            attackedImages = torch.clamp(source_im + noise_addition, mi, ma)
+            logitsAttacked = model(attackedImages)
+            logitsNormal   = model(source_im)
+
+            # Attack objective: make them DIFFERENT (maximize MSE)
+            attack_loss = -criterion(logitsAttacked, logitsNormal)
+
+            # Regularization: penalize large noise (mean L2 per sample)
+            noise_l2 = noise_addition.view(noise_addition.size(0), -1) # Compute L2 norm per image, then average
+            noise_l2 = torch.norm(noise_l2, p=2, dim=1).mean()
+
+            total_loss = attack_loss + alpha * noise_l2
+
+            total_loss.backward()
+            optimizer.step()
+
+            '''with torch.no_grad():
+                noise_addition.clamp_(-desired_norm_l_inf, desired_norm_l_inf)'''
+
+            if step % 10 == 0:
+                with torch.no_grad():
+                    print("step", step)
+                    print("attack_loss:", attack_loss.item())
+                    print("noise l2 norm:", noise_l2.item())
+                    print("noise l_inf norm:", noise_addition.abs().max().item())
+
+                    probsAttacked = torch.softmax(logitsAttacked, dim=1)
+                    top1 = probsAttacked.argmax(dim=1)
+                    samplesPreds = [class_dict[top.item()] for top in top1]
+
+                    getPlot64(attackedImages, 'UntargetedAttacked')
+                    getPlot64(source_im, 'original')
+
+                    correct = (top1 == labels).sum().item()
+                    Accuracy = correct / len(labels)
+                    print("Accuracy", Accuracy)
+                    print()
+
+    if attackType == "untargeted_l2_bound":
+        desired_norm_l2 = 5.0  # example radius
+
+        for step in range(100):
+            optimizer.zero_grad()
+
+            attackedImages = torch.clamp(source_im + noise_addition, mi, ma)
+            logitsAttacked = model(attackedImages)
+            logitsNormal   = model(source_im)
+
+            loss = criterion(logitsAttacked, logitsNormal)
+            total_loss = -loss       # maximize loss
+            total_loss.backward()
+            optimizer.step()
+
+            with torch.no_grad():
+                B = noise_addition.size(0)
+                noise_flat = noise_addition.view(B, -1)          # [B, D]
+
+                norms = torch.norm(noise_flat, p=2, dim=1, keepdim=True)  # [B, 1]
+
+                eps = desired_norm_l2
+                factors = (eps / (norms + 1e-12)).clamp(max=1.0)  # [B,1]
+
+                noise_flat.mul_(factors)                          # in-place scale
+                noise_addition.copy_(noise_flat.view_as(noise_addition))
+            # ------------------------------------------------
+
+            if step % 10 == 0:
+                with torch.no_grad():
+                    print("step", step)
+                    print("loss.item()", loss.item())
+
+                    # Norms for logging
+                    noise_flat = noise_addition.view(noise_addition.size(0), -1)
+                    l2_per_sample = torch.norm(noise_flat, p=2, dim=1)
+                    print("mean L2 norm:", l2_per_sample.mean().item())
+                    print("max L2 norm:", l2_per_sample.max().item())
+
+                    probsAttacked = torch.softmax(logitsAttacked, dim=1)
+                    top1 = probsAttacked.argmax(dim=1)
+                    samplesPreds = [class_dict[top.item()] for top in top1]
+
+                    getPlot64(attackedImages, 'UntargetedL2Attacked')
+                    getPlot64(source_im, 'original')
+
+                    correct = (top1 == labels).sum().item()
+                    Accuracy = correct / len(labels)
                     print("Accuracy", Accuracy)
                     print()
 
