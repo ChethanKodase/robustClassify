@@ -21,7 +21,9 @@ Activate the environment :
 
 Install libraries: 
 `pip install datasets`
+
 `pip install numpy`
+
 `pip install matplotlib`
 
 
