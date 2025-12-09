@@ -51,6 +51,8 @@ Uzip the downloaded file :
 
 `unzip imagenetmini-1000.zip -d imagenet-mini`
 
+Then run this to perform attacks
+
 `python efficientnetAttack2.py`
 
 
